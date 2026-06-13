@@ -1,0 +1,231 @@
+# 课程验收场景下的一键启动 compose。
+# PostgreSQL 和 Redis 仅在 Docker 内部网络开放，不映射宿主机端口。
+
+name: koi-commune
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: koi-postgres
+    restart: unless-stopped
+
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-appuser}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD 未设置，请在 .env 中配置}
+      POSTGRES_DB: ${POSTGRES_DB:-appdb}
+      TZ: ${TZ:-Asia/Shanghai}
+      POSTGRES_SHARED_BUFFERS: ${POSTGRES_SHARED_BUFFERS:-256MB}
+      POSTGRES_EFFECTIVE_CACHE_SIZE: ${POSTGRES_EFFECTIVE_CACHE_SIZE:-768MB}
+
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+    networks:
+      - koi-net
+
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-appuser} -d ${POSTGRES_DB:-appdb}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+    deploy:
+      resources:
+        limits:
+          memory: ${POSTGRES_MEMORY_LIMIT:-512m}
+
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  redis:
+    image: redis:7-alpine
+    container_name: koi-redis
+    restart: unless-stopped
+
+    command: >
+      sh -c '
+        redis-server
+        --appendonly yes
+        --requirepass "$$REDIS_PASSWORD"
+        --maxmemory ${REDIS_MAXMEMORY:-256mb}
+        --maxmemory-policy ${REDIS_EVICTION:-allkeys-lru}
+      '
+
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?REDIS_PASSWORD 未设置，请在 .env 中配置}
+      TZ: ${TZ:-Asia/Shanghai}
+
+    volumes:
+      - redis_data:/data
+
+    networks:
+      - koi-net
+
+    healthcheck:
+      test: ["CMD", "redis-cli", "--no-auth-warning", "-a", "$$REDIS_PASSWORD", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+    deploy:
+      resources:
+        limits:
+          memory: ${REDIS_MEMORY_LIMIT:-256m}
+
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  koi-backend:
+    image: koi-commune-backend
+    build:
+      context: .
+      dockerfile: Dockerfile.backend
+    container_name: koi-backend
+    restart: unless-stopped
+
+    environment:
+      SPRING_PROFILES_ACTIVE: ${SPRING_PROFILES_ACTIVE:-dev}
+      TZ: ${TZ:-Asia/Shanghai}
+
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB:-appdb}
+      SPRING_DATASOURCE_USERNAME: ${POSTGRES_USER:-appuser}
+      SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD}
+
+      SPRING_DATA_REDIS_HOST: redis
+      SPRING_DATA_REDIS_PORT: 6379
+      SPRING_DATA_REDIS_PASSWORD: ${REDIS_PASSWORD}
+
+      APP_JWT_SECRET: ${JWT_SECRET:?JWT_SECRET 未设置，请在 .env 中配置}
+
+      APP_BOOTSTRAP_ADMIN_PASSWORD: ${ADMIN_PASSWORD:?ADMIN_PASSWORD 未设置，请在 .env 中配置}
+
+      SPRING_MAIL_HOST: ${SPRING_MAIL_HOST:-}
+      SPRING_MAIL_PORT: ${SPRING_MAIL_PORT:-587}
+      SPRING_MAIL_USERNAME: ${SPRING_MAIL_USERNAME:-}
+      SPRING_MAIL_PASSWORD: ${SPRING_MAIL_PASSWORD:-}
+      SPRING_MAIL_SMTP_SSL_ENABLE: ${SPRING_MAIL_SMTP_SSL_ENABLE:-false}
+      SPRING_MAIL_SMTP_STARTTLS_ENABLE: ${SPRING_MAIL_SMTP_STARTTLS_ENABLE:-true}
+      APP_AUTH_REGISTER_VERIFICATION_FROM: ${APP_AUTH_REGISTER_VERIFICATION_FROM:-}
+
+      TINGWU_APP_KEY: ${TINGWU_APP_KEY:-}
+      ALIBABA_CLOUD_ACCESS_KEY_ID: ${ALIBABA_CLOUD_ACCESS_KEY_ID:-}
+      ALIBABA_CLOUD_ACCESS_KEY_SECRET: ${ALIBABA_CLOUD_ACCESS_KEY_SECRET:-}
+
+      APP_AI_API_KEY_ENCRYPTION_KEY: ${APP_AI_API_KEY_ENCRYPTION_KEY:-}
+      APP_BILLING_CDK_ENCRYPTION_KEY: ${APP_BILLING_CDK_ENCRYPTION_KEY:-}
+
+      APP_AI_BOOTSTRAP_ENABLED: ${APP_AI_BOOTSTRAP_ENABLED:-false}
+      APP_AI_BOOTSTRAP_MODEL_KEY: ${APP_AI_BOOTSTRAP_MODEL_KEY:-}
+      APP_AI_BOOTSTRAP_BASE_URL: ${APP_AI_BOOTSTRAP_BASE_URL:-}
+      APP_AI_BOOTSTRAP_MODEL_NAME: ${APP_AI_BOOTSTRAP_MODEL_NAME:-}
+      APP_AI_BOOTSTRAP_DISPLAY_NAME: ${APP_AI_BOOTSTRAP_DISPLAY_NAME:-}
+      APP_AI_BOOTSTRAP_API_KEY: ${APP_AI_BOOTSTRAP_API_KEY:-}
+      APP_AI_BOOTSTRAP_MODEL_ENABLED: ${APP_AI_BOOTSTRAP_MODEL_ENABLED:-true}
+      APP_AI_BOOTSTRAP_CURRENCY: ${APP_AI_BOOTSTRAP_CURRENCY:-CREDIT}
+      APP_AI_BOOTSTRAP_BILLING_UNIT_TOKENS: ${APP_AI_BOOTSTRAP_BILLING_UNIT_TOKENS:-1000}
+      APP_AI_BOOTSTRAP_INPUT_TOKEN_UNIT_PRICE: ${APP_AI_BOOTSTRAP_INPUT_TOKEN_UNIT_PRICE:-}
+      APP_AI_BOOTSTRAP_OUTPUT_TOKEN_UNIT_PRICE: ${APP_AI_BOOTSTRAP_OUTPUT_TOKEN_UNIT_PRICE:-}
+      APP_AI_BOOTSTRAP_CACHED_INPUT_TOKEN_UNIT_PRICE: ${APP_AI_BOOTSTRAP_CACHED_INPUT_TOKEN_UNIT_PRICE:-}
+      APP_AI_BOOTSTRAP_MAX_CONTEXT_TOKENS: ${APP_AI_BOOTSTRAP_MAX_CONTEXT_TOKENS:-}
+      APP_AI_BOOTSTRAP_MAX_OUTPUT_TOKENS: ${APP_AI_BOOTSTRAP_MAX_OUTPUT_TOKENS:-}
+      APP_AI_BOOTSTRAP_REQUEST_TIMEOUT_MS: ${APP_AI_BOOTSTRAP_REQUEST_TIMEOUT_MS:-60000}
+      APP_AI_BOOTSTRAP_SORT_ORDER: ${APP_AI_BOOTSTRAP_SORT_ORDER:-0}
+      APP_AI_BOOTSTRAP_REMARK: ${APP_AI_BOOTSTRAP_REMARK:-}
+
+      APP_MEDIA_NAS_ENABLED: ${APP_MEDIA_NAS_ENABLED:-false}
+      APP_MEDIA_NAS_BASE_URL: ${APP_MEDIA_NAS_BASE_URL:-}
+      APP_MEDIA_NAS_CALLBACK_BASE_URL: ${APP_MEDIA_NAS_CALLBACK_BASE_URL:-}
+      APP_MEDIA_LOCAL_WORKSPACE_DIR: ${APP_MEDIA_LOCAL_WORKSPACE_DIR:-/tmp/koimune-media}
+      APP_MEDIA_LOCAL_SUBPROCESS_TIMEOUT: ${APP_MEDIA_LOCAL_SUBPROCESS_TIMEOUT:-1h}
+      APP_MEDIA_LOCAL_MAX_CONCURRENT_JOBS: ${APP_MEDIA_LOCAL_MAX_CONCURRENT_JOBS:-1}
+      APP_MEDIA_LOCAL_ENABLE_HLS_PARALLEL_DOWNLOAD: ${APP_MEDIA_LOCAL_ENABLE_HLS_PARALLEL_DOWNLOAD:-true}
+      APP_MEDIA_LOCAL_HLS_DOWNLOAD_CONCURRENCY: ${APP_MEDIA_LOCAL_HLS_DOWNLOAD_CONCURRENCY:-16}
+      APP_MEDIA_LOCAL_HLS_DOWNLOAD_TIMEOUT: ${APP_MEDIA_LOCAL_HLS_DOWNLOAD_TIMEOUT:-30s}
+      APP_MEDIA_LOCAL_HLS_DOWNLOAD_MAX_ATTEMPTS: ${APP_MEDIA_LOCAL_HLS_DOWNLOAD_MAX_ATTEMPTS:-3}
+
+      APP_MEDIA_COS_SECRET_ID: ${APP_MEDIA_COS_SECRET_ID:?APP_MEDIA_COS_SECRET_ID 未设置，请在验收 .env 中配置}
+      APP_MEDIA_COS_SECRET_KEY: ${APP_MEDIA_COS_SECRET_KEY:?APP_MEDIA_COS_SECRET_KEY 未设置，请在验收 .env 中配置}
+      APP_MEDIA_COS_REGION: ${APP_MEDIA_COS_REGION:?APP_MEDIA_COS_REGION 未设置，请在验收 .env 中配置}
+      APP_MEDIA_COS_BUCKET: ${APP_MEDIA_COS_BUCKET:?APP_MEDIA_COS_BUCKET 未设置，请在验收 .env 中配置}
+      APP_MEDIA_COS_KEY_PREFIX: ${APP_MEDIA_COS_KEY_PREFIX:-media}
+      APP_MEDIA_COS_PUBLIC_BASE_URL: ${APP_MEDIA_COS_PUBLIC_BASE_URL:-}
+
+    ports:
+      - "${BACKEND_PORT:-127.0.0.1:8080}:8080"
+
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+    networks:
+      - koi-net
+
+    deploy:
+      resources:
+        limits:
+          memory: ${BACKEND_MEMORY_LIMIT:-1g}
+
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "20m"
+        max-file: "5"
+
+  koi-web:
+    image: koi-commune-web
+    build:
+      context: .
+      dockerfile: Dockerfile.web
+      args:
+        KOI_API_BASE_URL: ${KOI_API_BASE_URL:-/backend}
+        KOI_WEAPP_API_BASE_URL: ${KOI_WEAPP_API_BASE_URL:-https://api.koimune.com}
+    container_name: koi-web
+    restart: unless-stopped
+
+    ports:
+      - "${WEB_PORT:-127.0.0.1:3000}:80"
+
+    depends_on:
+      - koi-backend
+
+    networks:
+      - koi-net
+
+    volumes:
+      - ./koi-commune-weapp-dist:/opt/exported-weapp-dist
+
+    deploy:
+      resources:
+        limits:
+          memory: ${WEB_MEMORY_LIMIT:-128m}
+
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+volumes:
+  postgres_data:
+    name: koi-postgres-data
+    driver: local
+
+  redis_data:
+    name: koi-redis-data
+    driver: local
+
+networks:
+  koi-net:
+    name: koi-net
+    driver: bridge
+    internal: false

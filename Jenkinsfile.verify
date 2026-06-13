@@ -1,0 +1,61 @@
+pipeline {
+    agent any
+
+    options {
+        buildDiscarder(logRotator(numToKeepStr: '20'))
+        disableConcurrentBuilds()
+        timestamps()
+    }
+
+    stages {
+        stage('Prepare Workspace') {
+            steps {
+                sh '''
+                    set -eux
+
+                    git submodule sync --recursive
+                    git submodule update --init --recursive
+                '''
+            }
+        }
+
+        stage('Static Validation') {
+            steps {
+                sh '''
+                    set -eux
+
+                    test -f .gitmodules
+                    test -f .env.example
+                    test -f docker-compose.yml
+                    test -f Dockerfile.backend
+                    test -f Dockerfile.web
+                    test -f README.md
+
+                    test -d backend
+                    test -f backend/pom.xml
+                    test -d backend/.mvn
+
+                    test -d frontend
+                    test -f frontend/package.json
+                    test -f frontend/apps/web/docker/nginx.conf
+
+                    grep -n '^\\[submodule "frontend"\\]$' .gitmodules
+                    grep -n '^\\[submodule "backend"\\]$' .gitmodules
+
+                    grep -n 'dockerfile: Dockerfile.backend' docker-compose.yml
+                    grep -n 'dockerfile: Dockerfile.web' docker-compose.yml
+                    grep -n 'SPRING_PROFILES_ACTIVE: ${SPRING_PROFILES_ACTIVE:-dev}' docker-compose.yml
+                    grep -n './koi-commune-weapp-dist:/opt/exported-weapp-dist' docker-compose.yml
+                    grep -n 'KOI_API_BASE_URL' Dockerfile.web .env.example README.md
+                    grep -n 'KOI_WEAPP_API_BASE_URL' docker-compose.yml Dockerfile.web .env.example README.md
+                    grep -n 'ADMIN_PASSWORD' .env.example README.md
+                    grep -n 'docker compose up -d --build' README.md
+                    grep -n 'APP_AI_BOOTSTRAP_ENABLED: ${APP_AI_BOOTSTRAP_ENABLED:-false}' docker-compose.yml
+                    grep -n 'APP_MEDIA_COS_SECRET_ID: ${APP_MEDIA_COS_SECRET_ID:?' docker-compose.yml
+                    ! grep -n 'profiles:' docker-compose.yml
+                    ! grep -n 'JAVA_OPTS' docker-compose.yml .env.example README.md
+                '''
+            }
+        }
+    }
+}

@@ -1,0 +1,6 @@
+[submodule "frontend"]
+	path = frontend
+	url = ../koi-commune-frontend
+[submodule "backend"]
+	path = backend
+	url = ../koi-commune-backend

@@ -1,0 +1,45 @@
+# =============================================================================
+# 鱼课堂 (Koi Commune) — Backend 多阶段构建
+# =============================================================================
+# 阶段 1: 构建 Spring Boot JAR
+FROM eclipse-temurin:17-jdk-jammy AS builder
+
+WORKDIR /src
+
+COPY backend/mvnw ./
+COPY backend/.mvn ./.mvn/
+COPY backend/pom.xml ./
+
+# 缓存 Maven 依赖
+RUN --mount=type=cache,target=/root/.m2 \
+    ./mvnw -B -ntp dependency:go-offline -DskipTests
+
+COPY backend/src ./src
+
+RUN --mount=type=cache,target=/root/.m2 \
+    ./mvnw -B -ntp package -DskipTests \
+    && cp target/*.jar /app.jar
+
+# =============================================================================
+# 阶段 2: 运行时 JRE + ffmpeg
+FROM eclipse-temurin:17-jre-jammy
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ffmpeg ca-certificates wget \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+COPY --from=builder /app.jar app.jar
+
+RUN groupadd -r koimune && useradd -r -g koimune koimune \
+    && chown koimune:koimune app.jar
+
+USER koimune
+
+EXPOSE 8080
+
+HEALTHCHECK --interval=30s --timeout=5s --start-period=60s --retries=5 \
+    CMD wget -q -O /dev/null http://127.0.0.1:8080/v3/api-docs || exit 1
+
+ENTRYPOINT ["java", "-jar", "app.jar"]
