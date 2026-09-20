@@ -127,3 +127,7 @@ git submodule update --init --recursive
 ```
 
 前后端的独立开发、环境配置、测试与生产部署方式，请分别阅读 [backend/README.md](./backend/README.md) 和 [frontend/README.md](./frontend/README.md)。
+
+## 许可证
+
+本项目采用 [MIT License](./LICENSE)。
